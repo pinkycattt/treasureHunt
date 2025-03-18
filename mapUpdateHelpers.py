@@ -7,10 +7,13 @@ global_map = {}
 # agent orientation
 directions = ['N', 'E', 'S', 'W']
 agent_dir = 0
-# agent_dir = directions[agent_dir]
 
 # agent position
 agent_x, agent_y = 0, 0
+global_map[(0, 0)] = '^'
+
+# agent inventory
+inventory = {'a': 0, 'k': 0, 'd': 0, '$': 0, 'r': 0}
 
 # Update values in global map to reflect the current view
 def update_global_map(view):
@@ -20,9 +23,8 @@ def update_global_map(view):
         for x in range(-2, 3):
             world_x = agent_x + x
             world_y = agent_y + y
-            global_map[(world_x, world_y)] = rotated_view[y + 2][x + 2]
-
-    print(global_map) # REMOVE ON SUBMISSION
+            if not (world_x, world_y) == (agent_x, agent_y):
+                global_map[(world_x, world_y)] = rotated_view[y + 2][x + 2]
 
 # Rotate the current 5x5 view to reflect correct global view
 def rotate_view(view, direction):
@@ -35,47 +37,109 @@ def rotate_view(view, direction):
     elif direction == 'W':
         return [[view[j][4 - i] for j in range(5)] for i in range(5)]
     else:
-        print("ERROR (CRITICAL): invalid direction")
-        return
+        print("CRITICAL ERROR: invalid direction")
 
 # Update agent's position and direction on the global map
-def update_position_direction(view, action, direction):
+def process_action(action, direction):
+    if action in ['f', 'F', 'r', 'R', 'l', 'L']:
+        process_movement(action, direction)
+    elif action in ['c', 'C', 'u', 'U', 'b', 'B']:
+        process_interaction(action, direction)
+    else:
+        print(f"ERROR: invalid action - '{action}'")
+
+# Process movement specific actions
+def process_movement(action, direction):
+    global agent_dir
+    direction_map = {'N': '^', 'E': '>', 'S': 'v', 'W': '<'}
+    new_x_map = {'N': 0, 'E': 1, 'S': 0, 'W': -1}
+    new_y_map = {'N': -1, 'E': 0, 'S': 1, 'W': 0}
+    
     if action in ['f', 'F']:
-        if direction == 'N' and process_positional_update(view, agent_y - 1, agent_x):
-            global_map[(agent_x, agent_y)] = '^'
-        elif direction == 'E' and process_positional_update(view, agent_y, agent_x + 1):
-            global_map[(agent_x, agent_y)] = '>'
-        elif direction == 'S' and process_positional_update(view, agent_y + 1, agent_x):
-            global_map[(agent_x, agent_y)] = 'v'
-        elif direction == 'W' and process_positional_update(view, agent_y, agent_x - 1):
-            global_map[(agent_x, agent_y)] = '<'
+        if process_positional_update(agent_x + new_x_map[direction], agent_y + new_y_map[direction]):
+            global_map[(agent_x, agent_y)] = direction_map.get(direction)
         else:
-            print("ERROR: agent either attempted to move into an obstacle or drown in water.")
+            print("ERROR: Agent attempted to move into an obstacle.")
     elif action in ['r', 'R']:
         agent_dir = (agent_dir + 1) % 4
+        global_map[(agent_x, agent_y)] = direction_map.get(directions[agent_dir])
     elif action in ['l', 'L']:
         agent_dir = (agent_dir - 1) % 4
-    else:
-        print(f"'{action}' is an invalid action for updating position or direction - skipping...")
+        global_map[(agent_x, agent_y)] = direction_map.get(directions[agent_dir])
+
+# Process interaction specific actions
+def process_interaction(action, direction):
+    x_in_front_map = {'N': 0, 'E': 1, 'S': 0, 'W': -1}
+    y_in_front_map = {'N': -1, 'E': 0, 'S': 1, 'W': 0}
+
+    if action in ['c', 'C']:
+        print("Agent is attempting to remove a tree.")
+        if inventory['a'] == 0:
+            print("ERROR: Agent has no axe to remove tree.")
+            return
+        
+        if global_map[(agent_x + x_in_front_map[direction], agent_y + y_in_front_map[direction])] == 'T':
+            global_map[(agent_x + x_in_front_map[direction], agent_y + y_in_front_map[direction])] = ''
+            inventory['r'] += 1     # added a raft to inventory
+            print("Tree removed.")
+        else:
+            print("ERROR: No tree to chop down in front of agent.")
+            return
+    elif action in ['u', 'U']:
+        print("Agent is attempting to unlock a door.")
+        if inventory['k'] == 0:
+            print("ERROR: Agent has no key to unlock door.")
+            return
+        
+        if global_map[(agent_x + x_in_front_map[direction], agent_y + y_in_front_map[direction])] == '-':
+            global_map[(agent_x + x_in_front_map[direction], agent_y + y_in_front_map[direction])] = ''
+            print("Door unlocked.")
+        else:
+            print("ERROR: No door to unlock in front of agent.")
+            return
+    elif action in ['b', 'B']:
+        print("Agent is attempting to blast an obstacle.")
+        if inventory['d'] == 0:
+            print("ERROR: Agent has no dynamite to blast obstacle.")
+            return
+        
+        if global_map[(agent_x + x_in_front_map[direction], agent_y + y_in_front_map[direction])] in ['T', '-', '*']:
+            global_map[(agent_x + x_in_front_map[direction], agent_y + y_in_front_map[direction])] = ''
+            inventory['d'] -= 1
+            print("Obstacle blasted.")
+        else:
+            print("ERROR: No obstacle to blast in front of agent.")
+            return
 
 # updates the agent's position in the global map - returns True if agent moved, False if otherwise
-def process_positional_update(view, new_x, new_y):
+def process_positional_update(new_x, new_y):
     global agent_x
     global agent_y
 
-    if view[new_y][new_x] in ['T', '-', '*']:
-        print(f"ERROR: you have an obstacle '{view[new_y][new_x]}' in front of you")
-        return False
-    elif view[new_y][new_x] == '~':
-        print("You fell into water.")
+    if global_map[(new_x, new_y)] in ['T', '-', '*']:
+        print(f"ERROR: you have an obstacle '{global_map[(new_x, new_y)]}' in front of you")
         return False
     else:
+        if global_map[(new_x, new_y)] == 'a':
+            inventory['a'] += 1
+        elif global_map[(new_x, new_y)] == 'k':
+            inventory['k'] += 1
+        elif global_map[(new_x, new_y)] == 'd':
+            inventory['d'] += 1
+        elif global_map[(new_x, new_y)] == '$':
+            inventory['$'] += 1
+        
+        if global_map[(new_x, new_y)] == '~' and inventory['r'] == 0:
+            print("You drowned.")
+        elif global_map[(agent_x, agent_y)] == '~' and global_map[(new_x, new_y)] != '~':
+            inventory['r'] -= 1
+        
         global_map[(agent_x, agent_y)] = ''
         agent_x, agent_y = new_x, new_y
         return True
-    
+
+# Get the bounds of the global map
 def get_map_bounds(global_map):
-    """Returns min_x, max_x, min_y, max_y of explored map."""
     if not global_map:
         return 0, 0, 0, 0  # Default if map is empty
 
@@ -84,8 +148,8 @@ def get_map_bounds(global_map):
 
     return min(all_x), max(all_x), min(all_y), max(all_y)
 
+# Print the global map with the agent's position and direction
 def print_global_map(global_map):
-    """Prints the global map with the agent's position and direction."""
     min_x, max_x, min_y, max_y = get_map_bounds(global_map)
 
     symbol_map = {' ': '#'}

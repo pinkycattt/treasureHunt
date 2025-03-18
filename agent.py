@@ -10,7 +10,8 @@
 import sys
 import socket
 
-from mapUpdateHelpers import global_map, agent_dir, update_global_map, update_position_direction, print_global_map
+import mapUpdateHelpers
+from mapUpdateHelpers import global_map, update_global_map, process_action, print_global_map
 
 directions = ['N', 'E', 'S', 'W']
 
@@ -88,7 +89,7 @@ if __name__ == "__main__":
             update_global_map(view)
             print_global_map(global_map)
             action = get_action(view) # gets new actions
-            update_position_direction(view, action, directions[agent_dir])
+            process_action(action, directions[mapUpdateHelpers.agent_dir])
             sock.send(action.encode('utf-8'))
 
     sock.close()
