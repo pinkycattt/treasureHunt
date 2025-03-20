@@ -1,7 +1,5 @@
 #!/usr/bin/python3
 
-# declaring possible environment area
-map_size = 80
 global_map = {}
 
 # agent orientation
@@ -13,7 +11,13 @@ agent_x, agent_y = 0, 0
 global_map[(0, 0)] = '^'
 
 # agent inventory
-inventory = {'a': 0, 'k': 0, 'd': 0, '$': 0, 'r': 0}
+INVENTORY = {
+    'axe': False,
+    'key': False,
+    'dynamite': 0,
+    'treasure': False,
+    'raft': False
+}
 
 # Update values in global map to reflect the current view
 def update_global_map(view):
@@ -74,20 +78,20 @@ def process_interaction(action, direction):
 
     if action in ['c', 'C']:
         print("Agent is attempting to remove a tree.")
-        if inventory['a'] == 0:
+        if not INVENTORY['axe']:
             print("ERROR: Agent has no axe to remove tree.")
             return
         
         if global_map[(agent_x + x_in_front_map[direction], agent_y + y_in_front_map[direction])] == 'T':
             global_map[(agent_x + x_in_front_map[direction], agent_y + y_in_front_map[direction])] = ''
-            inventory['r'] += 1     # added a raft to inventory
+            INVENTORY['raft'] = True     # added a raft to inventory
             print("Tree removed.")
         else:
             print("ERROR: No tree to chop down in front of agent.")
             return
     elif action in ['u', 'U']:
         print("Agent is attempting to unlock a door.")
-        if inventory['k'] == 0:
+        if not INVENTORY['key']:
             print("ERROR: Agent has no key to unlock door.")
             return
         
@@ -99,13 +103,13 @@ def process_interaction(action, direction):
             return
     elif action in ['b', 'B']:
         print("Agent is attempting to blast an obstacle.")
-        if inventory['d'] == 0:
+        if not INVENTORY['dynamite']:
             print("ERROR: Agent has no dynamite to blast obstacle.")
             return
         
         if global_map[(agent_x + x_in_front_map[direction], agent_y + y_in_front_map[direction])] in ['T', '-', '*']:
             global_map[(agent_x + x_in_front_map[direction], agent_y + y_in_front_map[direction])] = ''
-            inventory['d'] -= 1
+            INVENTORY['dynamite'] -= 1
             print("Obstacle blasted.")
         else:
             print("ERROR: No obstacle to blast in front of agent.")
@@ -121,22 +125,28 @@ def process_positional_update(new_x, new_y):
         return False
     else:
         if global_map[(new_x, new_y)] == 'a':
-            inventory['a'] += 1
+            INVENTORY['axe'] = True
         elif global_map[(new_x, new_y)] == 'k':
-            inventory['k'] += 1
+            INVENTORY['key'] = True
         elif global_map[(new_x, new_y)] == 'd':
-            inventory['d'] += 1
+            INVENTORY['dynamite'] += 1
         elif global_map[(new_x, new_y)] == '$':
-            inventory['$'] += 1
+            INVENTORY['treasure'] = True
         
-        if global_map[(new_x, new_y)] == '~' and inventory['r'] == 0:
+        if global_map[(new_x, new_y)] == '~' and INVENTORY['raft'] == 0:
             print("You drowned.")
         elif global_map[(agent_x, agent_y)] == '~' and global_map[(new_x, new_y)] != '~':
-            inventory['r'] -= 1
+            INVENTORY['raft'] = False
         
         global_map[(agent_x, agent_y)] = ''
         agent_x, agent_y = new_x, new_y
         return True
+
+def get_agent_direction():
+    return directions[agent_dir]
+
+def get_agent_position():
+    return agent_x, agent_y
 
 # Get the bounds of the global map
 def get_map_bounds(global_map):
@@ -152,7 +162,7 @@ def get_map_bounds(global_map):
 def print_global_map(global_map):
     min_x, max_x, min_y, max_y = get_map_bounds(global_map)
 
-    symbol_map = {' ': '#'}
+    symbol_map = {' ': ' '}
 
     for y in range(min_y, max_y + 1):
         row = '|'
