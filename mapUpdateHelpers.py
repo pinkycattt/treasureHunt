@@ -19,6 +19,8 @@ INVENTORY = {
     'raft': False
 }
 
+on_water = False
+
 # Update values in global map to reflect the current view
 def update_global_map(view):
     rotated_view = rotate_view(view, directions[agent_dir])
@@ -117,13 +119,16 @@ def process_interaction(action, direction):
 
 # updates the agent's position in the global map - returns True if agent moved, False if otherwise
 def process_positional_update(new_x, new_y):
-    global agent_x
-    global agent_y
+    global agent_x, agent_y, on_water
 
     if global_map[(new_x, new_y)] in ['T', '-', '*']:
         print(f"ERROR: you have an obstacle '{global_map[(new_x, new_y)]}' in front of you")
         return False
     else:
+        if on_water and global_map[(new_x, new_y)] != '~':
+            INVENTORY['raft'] = False
+            on_water = False
+
         if global_map[(new_x, new_y)] == 'a':
             INVENTORY['axe'] = True
         elif global_map[(new_x, new_y)] == 'k':
@@ -133,10 +138,11 @@ def process_positional_update(new_x, new_y):
         elif global_map[(new_x, new_y)] == '$':
             INVENTORY['treasure'] = True
         
-        if global_map[(new_x, new_y)] == '~' and INVENTORY['raft'] == 0:
-            print("You drowned.")
-        elif global_map[(agent_x, agent_y)] == '~' and global_map[(new_x, new_y)] != '~':
-            INVENTORY['raft'] = False
+        if global_map[(new_x, new_y)] == '~':
+            if not INVENTORY['raft']:
+                print("You drowned.")
+            else:
+                on_water = True
         
         global_map[(agent_x, agent_y)] = ''
         agent_x, agent_y = new_x, new_y
@@ -147,6 +153,9 @@ def get_agent_direction():
 
 def get_agent_position():
     return agent_x, agent_y
+
+def is_on_water():
+    return on_water
 
 # Get the bounds of the global map
 def get_map_bounds(global_map):

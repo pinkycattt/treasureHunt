@@ -22,19 +22,15 @@ from mapUpdateHelpers import (
     print_global_map,
     get_agent_direction,
     get_agent_position,
+    is_on_water,
     INVENTORY
 )
 
 logging.basicConfig(level=logging.DEBUG)
 
-# declaring possible environment area
-map_size = 80
-map_radius = map_size >> 1
-
 # declaring visible grid to agent
 view = [['' for _ in range(5)] for _ in range(5)]
 
-phase = "exploration"
 treasure_location = None
 
 # define tools
@@ -50,7 +46,8 @@ OBSTACLES = {
     'tree': 'T',
     'door': '-',
     'wall': '*',
-    'water': '~'
+    'water': '~',
+    'void': '.'
 }
 
 # define directions
@@ -61,112 +58,106 @@ DIRECTIONS = {
     'W': 3
 }
 
-full_path = []
-move_count = 0
-
-# function to take get action from AI or user
 def get_action(view):
+    """
+    Retrieves the next action to take via an A* search.
+    """
     global move_count, treasure_location
 
-    move_count += 1
     if not treasure_location:
         treasure_location = next((k for k, v in global_map.items() if v == '$'), None)
 
-    print(move_count)
-    return explore()
-    
-def explore():
     agent_x, agent_y = get_agent_position()
     agent_dir = get_agent_direction()
     return astar(agent_x, agent_y, agent_dir)
 
 def astar(start_x, start_y, start_dir):
+    """
+    Establishes an A* search with the objective function f(n) = g(n) + h(n)
+    where g(n) is a penalised cost of reaching the current node and h(n) is the
+    penalised heuristic of reaching the final target
+    """
     global treasure_location
     priority_queue = []
 
-    # Push the starting position, cost, and inventory to the priority queue
-    heapq.heappush(priority_queue, (0, start_x, start_y, start_dir, [], copy.deepcopy(INVENTORY)))
+    # push the starting position, direction, cost, and inventory to the priority queue
+    heapq.heappush(priority_queue, (0, start_x, start_y, start_dir, [], copy.deepcopy(INVENTORY), is_on_water()))
     visited = set()
 
-    count = 0
-
     while priority_queue:
-        cost, x, y, dir, path, current_inv = heapq.heappop(priority_queue)
-        count += 1
-        # logging.debug(count)
-        # logging.debug(f"currently checking: (x: {x}, y: {y})")
+        cost, x, y, dir, path, current_inv, on_water = heapq.heappop(priority_queue)
 
-        # Get the environment at the current node
+        # get the environment at the current node
         env = global_map.get((x, y), '?')
 
-        # Skip already visited states
+        # skip already visited states
         if (x, y, tuple(current_inv.items())) in visited:
             continue
         visited.add((x, y, tuple(current_inv.items())))
 
-         # If the treasure is obtained and the current path leads to (0, 0), follow this path
+        # if the treasure is obtained and the current path leads to (0, 0), follow this path
         if current_inv['treasure'] and (x, y) == (0, 0):
-            logging.debug("returning")
-            logging.debug(f"moving toward: ({x}, {y})")
             return path[0]
 
-        # If the treasure is not obtained and the current path leads to treasure, follow this path
+        # if the treasure is not obtained and the current path leads to treasure, follow this path
         if env == TOOLS['treasure']:
-            logging.debug("to treasure")
-            logging.debug(f"moving toward: ({x}, {y})")
             return path[0]
 
-        # If the treasure is not obtained and the current path leads to a tool, follow this path
+        # if the treasure is not obtained and the current path leads to a tool, follow this path
         if env in TOOLS.values():
-            logging.debug("to tool")
-            logging.debug(f"moving toward: ({x}, {y})")
             return path[0]
 
-        # If the current node is unexplored, return the first move in the path
+        # if the current node is unexplored, return the first move in the path
         if env == '?':
-            logging.debug(f"is the current node unexplored? {(x, y) in global_map}")
-            logging.debug("exploring")
-            logging.debug(f"moving toward: ({x}, {y})")
-            return path[0] if path else 'F'
+            return path[0]
+        
+        # if the current node is an obstacle (it should be a critical one to remove), follow
+        # this path 
+        if env in ['T', '-', '*']:
+            return path[0]
 
-        # Explore neighbors with obstacle handling
+        # expand the current node in each direction
         for direction, (dx, dy) in {'N': (0, -1), 'E': (1, 0), 'S': (0, 1), 'W': (-1, 0)}.items():
             search_x, search_y = x + dx, y + dy
-            new_env = global_map.get((search_x, search_y), '?')
-            new_path = path.copy()
+            new_env = global_map.get((search_x, search_y), '?')     # environment at neighbour
+            new_path = path.copy()                                  # copy of path
+            new_inv = copy.deepcopy(current_inv)                    # copy of inventory
+            new_on_water = on_water
 
-            # Skip already visited states
+            # skip already visited states
             if (search_x, search_y, tuple(current_inv.items())) in visited:
                 continue
 
             move_cost = 0
 
-            # Assign a base move_cost to reflect the amount of moves required
+            # assign a base move_cost to reflect the amount of moves required
             if DIRECTIONS[direction] == DIRECTIONS[dir]:
-                move_cost += 1  # Forward = 1
+                move_cost += 1  # forwards = 1
             elif DIRECTIONS[direction] == (DIRECTIONS[dir] - 1) % 4:
-                move_cost += 2  # Left = 2
+                move_cost += 2  # left = 2
                 new_path += ['l']
             elif DIRECTIONS[direction] == (DIRECTIONS[dir] + 1) % 4:
-                move_cost += 2  # Right = 2
+                move_cost += 2  # right = 2
                 new_path += ['r']
             elif DIRECTIONS[direction] == (DIRECTIONS[dir] + 2) % 4:
-                move_cost += 3  # Backward = 3
+                move_cost += 3  # backwards = 3
                 new_path += ['r', 'r']
             else:
                 print("ERROR: something went wrong assigning a base cost")
                 return
 
-            # Check for obstacles and update move_cost to reflect interactions
+            # check for obstacles and update move_cost to reflect interactions
             if new_env == OBSTACLES['tree']:
                 if current_inv['axe']:
-                    current_inv['raft'] = True
+                    if current_inv['raft']:
+                        move_cost += 300    # if raft is owned, penalise chopping trees
+                    new_inv['raft'] = True
                     new_path += ['c']
                     move_cost += 1
                 elif current_inv['dynamite'] > 0:
-                    current_inv['dynamite'] -= 1
+                    new_inv['dynamite'] -= 1
                     new_path += ['b']
-                    move_cost += 300        # most heavily penalise bombing trees
+                    move_cost += dynamite_usage_heuristic(search_x, search_y, x, y)
                 else:
                     continue
             elif new_env == OBSTACLES['door']:
@@ -174,113 +165,119 @@ def astar(start_x, start_y, start_dir):
                     new_path += ['u']
                     move_cost += 1
                 elif current_inv['dynamite'] > 0:
-                    current_inv['dynamite'] -= 1
+                    new_inv['dynamite'] -= 1
                     new_path += ['b']
-                    move_cost += 200        # heavily penalise bombing doors
+                    move_cost += dynamite_usage_heuristic(search_x, search_y, x, y)
                 else:
                     continue
             elif new_env == OBSTACLES['wall']:
                 if current_inv['dynamite'] > 0:
-                    current_inv['dynamite'] -= 1
+                    new_inv['dynamite'] -= 1
                     new_path += ['b']
-                    move_cost += 100        # penalise bombing walls
+                    move_cost += dynamite_usage_heuristic(search_x, search_y, x, y)
                 else:
                     continue
             elif new_env == OBSTACLES['water']:
                 if not current_inv['raft']:
                     continue
+                else:
+                    new_on_water = True
+                    move_cost += 1
+            elif new_env == OBSTACLES['void']:
+                continue
 
-            # If the agent leaves water, remove the raft from the inventory
-            if env == OBSTACLES['water'] and new_env != OBSTACLES['water']:
-                current_inv['raft'] = False
+            # if the agent leaves water, remove the raft from the inventory
+            if on_water and new_env != OBSTACLES['water']:
+                new_inv['raft'] = False
+                new_on_water = False
+                move_cost += 500        # heavily penalise leaving water
 
-            # Calculate the heuristic for the neighbor
-            heuristic = calculate_heuristic(search_x, search_y, current_inv)
+            # calculate the heuristic for the neighbor
+            heuristic = calculate_heuristic(search_x, search_y, new_inv)
 
-            # Push the neighbor to the priority queue
+            # push the neighbor to the priority queue
             new_path += ['f']
-            heapq.heappush(priority_queue, (cost + move_cost + heuristic, search_x, search_y, direction, new_path.copy(), copy.deepcopy(current_inv)))
+            heapq.heappush(priority_queue, (cost + move_cost + heuristic, search_x, search_y, direction, new_path, new_inv, new_on_water))
 
-    # If no viable path is found, return a default action
-    logging.debug("No viable path found. Returning default action.")
-    return 'f'  # Default forward move
+    # if no viable path is found, return a default action - WILL CAUSE ISSUES IF TRIGGERED MOST LIKELY
+    return 'f'
 
-
-def calculate_heuristic(x, y, current_inv):
+def dynamite_usage_heuristic(x, y, prev_x, prev_y):
     """
-    Heuristic function to guide the agent's behavior based on the current inventory and map state.
-    Prioritizes:
-    - Treasure if reachable.
-    - Tools if treasure is not reachable.
-    - Dynamite usage if tools are not reachable.
-    - Rafts before chopping trees.
+    Determines if an obstacle at (x, y) blocks access to significant nodes
+    (e.g., treasure, tools, or unexplored areas) using BFS. If so, it would be
+    beneficial to use dynamite on this obstacle.
     """
+    visited = set()
+    queue = deque([(x, y)])
+
+    # ensures that dynamite will opt to blast walls over doors over trees
+    penalties = {
+        'T': 300,
+        '-': 200,
+        '*': 100
+    }
+
+    while queue:
+        current_x, current_y = queue.popleft()
+
+        # skip already visited nodes and the node on the path that led to the obstacle
+        # since we don't want to go back the way we came
+        if (current_x, current_y) in visited or (current_x, current_y) == (prev_x, prev_y):
+            continue
+        visited.add((current_x, current_y))
+
+        # check if the current node is significant
+        env = global_map.get((current_x, current_y), '?')
+        
+        # prioritise breaking obstacles that lead to tools rather than new areas
+        if env in TOOLS.values():
+            return 100 + penalties[global_map[(x, y)]]
+        elif env == '?':
+            return 500 + penalties[global_map[(x, y)]]
+
+        # add neighbors to the queue if they are not blocked
+        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            neighbor_x, neighbor_y = current_x + dx, current_y + dy
+            neighbor_env = global_map.get((neighbor_x, neighbor_y), '?')
+
+            # skip blocked paths unless they are the obstacle itself
+            if neighbor_env in OBSTACLES.values() and (neighbor_x, neighbor_y) != (x, y):
+                continue
+
+            queue.append((neighbor_x, neighbor_y))
+
+    return float('inf')
+
+def calculate_heuristic(search_x, search_y, current_inv):
     global treasure_location
 
-    # 1. If the treasure is collected, prioritize returning to (0, 0)
+    # 1. if the treasure is collected, prioritise returning to (0, 0)
     if current_inv['treasure']:
-        return abs(x) + abs(y)  # Manhattan distance to (0, 0)
+        return abs(search_x) + abs(search_y)
 
-    # 2. If the treasure is located, calculate the path to it
+    # 2. if the treasure is located, prioritise pathfinding towards it
     if treasure_location is not None:
         treasure_x, treasure_y = treasure_location
-        dist_to_treasure = abs(x - treasure_x) + abs(y - treasure_y)
+        return abs(treasure_x - search_x) + abs(treasure_y - search_y)
 
-        # Check if the treasure is reachable with the current inventory
-        if is_reachable(treasure_x, treasure_y, current_inv):
-            return dist_to_treasure  # Prioritize treasure if reachable
-
-    # 3. If treasure is not reachable, prioritize tool collection
+    # 3. if treasure is not reachable, prioritise tool collection
     for (tool_x, tool_y), tool in global_map.items():
-        if tool in TOOLS.values() and is_reachable(tool_x, tool_y, current_inv):
-            return abs(x - tool_x) + abs(y - tool_y)  # Prioritize tools
+        if tool in TOOLS.values():
+            return abs(search_x - tool_x) + abs(search_y - tool_y)
 
-    # 4. If tools are not reachable, prioritize dynamite usage
-    for (obstacle_x, obstacle_y), obstacle in global_map.items():
-        if obstacle in OBSTACLES.values():
-            if obstacle == OBSTACLES['wall'] and current_inv['dynamite'] > 0:
-                return abs(x - obstacle_x) + abs(y - obstacle_y) + 10  # Penalize dynamite usage for walls
-            elif obstacle == OBSTACLES['door'] and current_inv['dynamite'] > 0:
-                return abs(x - obstacle_x) + abs(y - obstacle_y) + 20  # Heavily penalize dynamite usage for doors
-            elif obstacle == OBSTACLES['tree'] and current_inv['dynamite'] > 0:
-                return abs(x - obstacle_x) + abs(y - obstacle_y) + 30  # Most heavily penalize dynamite usage for trees
-
-    # 5. If no treasure, tools, or obstacles are reachable, explore unexplored nodes
-    for radius in range(3, 81):  # Expand search radius
+    # 4. if no treasure, tools, or obstacles are reachable, explore unexplored nodes
+    for radius in range(3, 81):  # skips the inner 5x5 box since this is all within the agent's view
         for dx in range(-radius, radius + 1):
             for dy in range(-radius, radius + 1):
                 if abs(dx) != radius and abs(dy) != radius:
                     continue
-                unexplored_x, unexplored_y = x + dx, y + dy
+                unexplored_x, unexplored_y = search_x + dx, search_y + dy
                 if (unexplored_x, unexplored_y) not in global_map:
-                    return abs(dx) + abs(dy)  # Prioritize unexplored nodes
+                    return abs(dx) + abs(dy)
 
-    # Default heuristic value if no other priorities are found
+    # default heuristic value if no other priorities are found
     return float('inf')
-
-def is_reachable(target_x, target_y, current_inv):
-    """
-    Determines if a target node is reachable with the current inventory.
-    """
-    # Check for obstacles and inventory requirements
-    env = global_map.get((target_x, target_y), '?')
-    if env == OBSTACLES['tree'] and not current_inv['axe'] and current_inv['dynamite'] == 0:
-        return False  # Trees require an axe or dynamite
-    if env == OBSTACLES['door'] and not current_inv['key'] and current_inv['dynamite'] == 0:
-        return False  # Doors require a key or dynamite
-    if env == OBSTACLES['wall'] and current_inv['dynamite'] == 0:
-        return False  # Walls require dynamite
-    if env == OBSTACLES['water'] and not current_inv['raft']:
-        return False  # Water requires a raft
-    return True
-
-def go_to_treasure(view):
-    print("Going to treasure")
-    pass
-
-def return_to_start(view):
-    print("Returning to start")
-    pass
 
 # helper function to print the grid
 def print_grid(view):
